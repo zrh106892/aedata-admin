@@ -1,0 +1,329 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# Vue Vben Admin 开发规范与模板
+
+## 1. 目录结构规范
+```
+views/
+  ├── [module]/                # 模块目录
+  │   ├── data.ts             # 表单schema、表格列配置等
+  │   ├── list.vue            # 主列表页面
+  │   └── modules/            # 子模块组件
+  │       └── form.vue        # 表单抽屉组件
+```
+
+## 2. 代码模板
+
+### 2.1 列表页面模板 (list.vue)
+```vue
+<script lang="ts" setup>
+import type { Recordable } from '@vben/types';
+import type { OnActionClickParams, VxeTableGridOptions } from '#/adapter/vxe-table';
+import type { [Module]Api } from '#/api';
+
+import { Page, useVbenDrawer } from '@vben/common-ui';
+import { Plus } from '@vben/icons';
+import { Button, message, Modal } from 'ant-design-vue';
+
+import { useVbenVxeGrid } from '#/adapter/vxe-table';
+import { delete[Module], get[Module]List, update[Module] } from '#/api';
+import { $t } from '#/locales';
+
+import { useColumns, useGridFormSchema } from './data';
+import Form from './modules/form.vue';
+
+// 表单抽屉
+const [FormDrawer, formDrawerApi] = useVbenDrawer({
+  connectedComponent: Form,
+  destroyOnClose: true,
+});
+
+// 表格配置
+const [Grid, gridApi] = useVbenVxeGrid({
+  formOptions: {
+    fieldMappingTime: [['create_time', ['startTime', 'endTime']]],
+    schema: useGridFormSchema(),
+    submitOnChange: true,
+  },
+  gridOptions: {
+    columns: useColumns(onActionClick, onStatusChange),
+    height: 'auto',
+    keepSource: true,
+    proxyConfig: {
+      ajax: {
+        query: async ({ page }, formValues) => {
+          return await get[Module]List({
+            page: page.currentPage,
+            pageSize: page.pageSize,
+            ...formValues,
+          });
+        },
+      },
+    },
+    rowConfig: {
+      keyField: 'id',
+    },
+    toolbarConfig: {
+      custom: true,
+      export: false,
+      refresh: { code: 'query' },
+      search: true,
+      zoom: true,
+    },
+  } as VxeTableGridOptions<[Module]Api.[Module]Item>,
+});
+
+// 操作处理函数
+function onActionClick(e: OnActionClickParams<[Module]Api.[Module]Item>) {
+  switch (e.code) {
+    case 'delete': onDelete(e.row); break;
+    case 'edit': onEdit(e.row); break;
+  }
+}
+
+// 状态变更处理
+async function onStatusChange(newStatus: number, row: [Module]Api.[Module]Item) {
+  const status: Recordable<string> = {
+    0: '禁用',
+    1: '启用',
+  };
+  try {
+    await confirm(
+      `你要将${row.name}的状态切换为 【${status[newStatus.toString()]}】 吗？`,
+      `切换状态`,
+    );
+    await update[Module](mdc:row.id, { status: newStatus });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 编辑处理
+function onEdit(row: [Module]Api.[Module]Item) {
+  formDrawerApi.setData(row).open();
+}
+
+// 删除处理
+function onDelete(row: [Module]Api.[Module]Item) {
+  const hideLoading = message.loading({
+    content: $t('ui.actionMessage.deleting', [row.name]),
+    duration: 0,
+    key: 'action_process_msg',
+  });
+  delete[Module](mdc:row.id)
+    .then(() => {
+      message.success({
+        content: $t('ui.actionMessage.deleteSuccess', [row.name]),
+        key: 'action_process_msg',
+      });
+      onRefresh();
+    })
+    .catch(() => {
+      hideLoading();
+    });
+}
+
+// 刷新处理
+function onRefresh() {
+  gridApi.query();
+}
+
+// 创建处理
+function onCreate() {
+  formDrawerApi.setData({}).open();
+}
+</script>
+
+<template>
+  <Page auto-content-height>
+    <FormDrawer @success="onRefresh" />
+    <Grid :table-title="$t('module.list')">
+      <template #toolbar-tools>
+        <Button type="primary" @click="onCreate">
+          <Plus class="size-5" />
+          {{ $t('ui.actionTitle.create', [$t('module.name')]) }}
+        </Button>
+      </template>
+    </Grid>
+  </Page>
+</template>
+```
+
+### 2.2 数据配置模板 (data.ts)
+```typescript
+import type { VbenFormSchema } from '#/adapter/form';
+import type { OnActionClickFn, VxeTableGridOptions } from '#/adapter/vxe-table';
+import type { [Module]Api } from '#/api';
+
+import { $t } from '#/locales';
+
+// 表单配置
+export function useFormSchema(): VbenFormSchema[] {
+  return [
+    {
+      component: 'Input',
+      fieldName: 'field_name',
+      label: $t('module.field.label'),
+      rules: 'required',
+    },
+    // ... 其他表单项
+  ];
+}
+
+// 搜索表单配置
+export function useGridFormSchema(): VbenFormSchema[] {
+  return [
+    {
+      component: 'Input',
+      fieldName: 'search_field',
+      label: $t('module.search.label'),
+    },
+    // ... 其他搜索项
+  ];
+}
+
+// 表格列配置
+export function useColumns<T = [Module]Api.[Module]Item>(
+  onActionClick: OnActionClickFn<T>,
+  onStatusChange?: (newStatus: any, row: T) => PromiseLike<boolean | undefined>,
+): VxeTableGridOptions['columns'] {
+  return [
+    {
+      field: 'field_name',
+      title: $t('module.field.label'),
+      width: 200,
+    },
+    // ... 其他列
+    {
+      align: 'center',
+      cellRender: {
+        attrs: {
+          nameField: 'name_field',
+          nameTitle: $t('module.name.label'),
+          onClick: onActionClick,
+        },
+        name: 'CellOperation',
+      },
+      field: 'operation',
+      fixed: 'right',
+      title: $t('module.operation'),
+      width: 130,
+    },
+  ];
+}
+```
+
+### 2.3 表单组件模板 (form.vue)
+```vue
+<script lang="ts" setup>
+import type { [Module]Api } from '#/api';
+import { useVbenForm } from '#/adapter/form';
+import { create[Module], update[Module] } from '#/api';
+import { $t } from '#/locales';
+import { useFormSchema } from '../data';
+
+const emit = defineEmits<{
+  (e: 'success'): void;
+}>();
+
+const [Form, formApi] = useVbenForm({
+  schema: useFormSchema(),
+  submitButtonText: $t('ui.actionTitle.submit'),
+  submit: async (values) => {
+    if (values.id) {
+      await update[Module](mdc:values.id, values);
+    } else {
+      await create[Module](mdc:values);
+    }
+    emit('success');
+  },
+});
+</script>
+
+<template>
+  <Form />
+</template>
+```
+
+### 2.4 API 接口定义模板
+```typescript
+import type { BaseApi } from '#/api';
+
+export namespace [Module]Api {
+  export interface [Module]Item {
+    id: number;
+    // ... 其他字段
+  }
+
+  export interface [Module]ListParams extends BaseApi.ListParams {
+    // ... 其他查询参数
+  }
+
+  export interface [Module]ListResult extends BaseApi.ListResult<[Module]Item> {}
+}
+
+export function get[Module]List(params: [Module]Api.[Module]ListParams) {
+  return request.get<[Module]Api.[Module]ListResult>('/api/[module]/list', { params });
+}
+
+export function create[Module](mdc:data: Omit<[Module]Api.[Module]Item, 'id'>) {
+  return request.post<[Module]Api.[Module]Item>('/api/[module]/create', data);
+}
+
+export function update[Module](mdc:id: number, data: Partial<[Module]Api.[Module]Item>) {
+  return request.put<[Module]Api.[Module]Item>(`/api/[module]/update/${id}`, data);
+}
+
+export function delete[Module](mdc:id: number) {
+  return request.delete(`/api/[module]/delete/${id}`);
+}
+```
+
+### 2.5 国际化文案模板
+```typescript
+export default {
+  module: {
+    name: '[模块名称]',
+    list: '[模块名称]列表',
+    field: {
+      label: '[字段标签]',
+    },
+    search: {
+      label: '[搜索标签]',
+    },
+    operation: '操作',
+  },
+};
+```
+
+## 3. 使用说明
+
+1. 创建新模块时，按照目录结构规范创建相应的文件
+2. 复制对应的模板代码到相应文件中
+3. 替换所有 `[Module]` 为你的模块名称（如 `Product`）
+4. 根据实际需求修改：
+   - 表单字段配置
+   - 搜索表单配置
+   - 表格列配置
+   - API 接口定义
+   - 国际化文案
+
+## 4. 注意事项
+
+1. 确保 API 接口已定义并正确实现
+2. 确保国际化文案已配置
+3. 根据实际需求调整表单和表格配置
+4. 注意处理特殊字段（如时间、状态等）
+5. 保持代码风格统一
+6. 遵循项目的命名规范
+
+## 5. 参考示例
+
+可以参考以下现有模块的实现：
+- @system/role
+- @system/user
+- @order

@@ -1,0 +1,12 @@
+// @ts-check
+
+import { defineConfig } from '@vben/eslint-config';
+
+export default defineConfig([
+  {
+    rules: {
+      'no-console': 'off',
+      'no-unused-vars': 'warn',
+    },
+  },
+]);
